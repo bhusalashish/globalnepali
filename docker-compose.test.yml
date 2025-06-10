@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  mongodb_test:
+    image: mongo:6.0
+    ports:
+      - "27018:27017"  # Different port to avoid conflicts with dev environment
+    environment:
+      - MONGO_INITDB_DATABASE=globalnepali_test
+
+  backend_test:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - MONGODB_URL=mongodb://mongodb_test:27017
+      - DATABASE_NAME=globalnepali_test
+      - JWT_SECRET=testing_secret_key_123
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - SECRET_KEY=testing_secret_key_456
+      - CORS_ORIGINS='["http://localhost:5173","http://localhost:80","http://localhost"]'
+    depends_on:
+      - mongodb_test
+    command: pytest tests/ -v 

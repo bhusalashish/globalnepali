@@ -12,53 +12,57 @@ interface ConfigError {
   isConfigError: true;
 }
 
-interface VideosState {
-  allVideos: {
-    items: Video[];
-    loading: boolean;
-    error: string | null;
-    retryCount: number;
-    hasConfigError: boolean;
-  };
-  popularVideos: {
-    items: Video[];
-    loading: boolean;
-    error: string | null;
-    retryCount: number;
-    hasConfigError: boolean;
-  };
-  playlists: {
-    items: Playlist[];
-    loading: boolean;
-    error: string | null;
-    retryCount: number;
-    hasConfigError: boolean;
-  };
+interface PaginatedState<T> {
+  items: T[];
+  loading: boolean;
+  error: string | null;
+  retryCount: number;
+  hasConfigError: boolean;
+  pageToken?: string;
+  hasMore: boolean;
 }
 
+interface VideosState {
+  latestVideos: PaginatedState<Video>;
+  popularVideos: PaginatedState<Video>;
+  playlists: PaginatedState<Playlist>;
+}
+
+const createInitialPaginatedState = (): PaginatedState<any> => ({
+  items: [],
+  loading: false,
+  error: null,
+  retryCount: 0,
+  hasConfigError: false,
+  hasMore: true
+});
+
 const initialState: VideosState = {
-  allVideos: { items: [], loading: false, error: null, retryCount: 0, hasConfigError: false },
-  popularVideos: { items: [], loading: false, error: null, retryCount: 0, hasConfigError: false },
-  playlists: { items: [], loading: false, error: null, retryCount: 0, hasConfigError: false },
+  latestVideos: createInitialPaginatedState(),
+  popularVideos: createInitialPaginatedState(),
+  playlists: createInitialPaginatedState(),
 };
 
 // Maximum number of retries for each section
 const MAX_RETRIES = 3;
 
-export const fetchAllVideos = createAsyncThunk<Video[], void, { rejectValue: ConfigError | string }>(
-  'videos/fetchAll',
-  async (_, { getState, rejectWithValue }) => {
+export const fetchLatestVideos = createAsyncThunk<
+  { items: Video[]; nextPageToken?: string },
+  { pageToken?: string } | undefined,
+  { rejectValue: ConfigError | string }
+>(
+  'videos/fetchLatest',
+  async (params, { getState, rejectWithValue }) => {
     const state = getState() as { videos: VideosState };
     
-    // Don't retry if we've hit config errors or max retries
-    if (state.videos.allVideos.hasConfigError || state.videos.allVideos.retryCount >= MAX_RETRIES) {
+    if (state.videos.latestVideos.hasConfigError || state.videos.latestVideos.retryCount >= MAX_RETRIES) {
       return rejectWithValue('Maximum retries reached or configuration error');
     }
 
     try {
-      return await fetchYouTubeVideos(9);
+      const pageToken = params?.pageToken;
+      return await fetchYouTubeVideos(9, pageToken);
     } catch (error) {
-      // Check if error is an Error object with a name property
       if (error instanceof Error && error.name === 'YouTubeConfigError') {
         return rejectWithValue({ message: error.message, isConfigError: true });
       }
@@ -67,9 +71,13 @@ export const fetchAllVideos = createAsyncThunk<Video[], void, { rejectValue: Con
   }
 );
 
-export const fetchPopular = createAsyncThunk<Video[], void, { rejectValue: ConfigError | string }>(
+export const fetchPopular = createAsyncThunk<
+  { items: Video[]; nextPageToken?: string },
+  { pageToken?: string } | undefined,
+  { rejectValue: ConfigError | string }
+>(
   'videos/fetchPopular',
-  async (_, { getState, rejectWithValue }) => {
+  async (params, { getState, rejectWithValue }) => {
     const state = getState() as { videos: VideosState };
     
     if (state.videos.popularVideos.hasConfigError || state.videos.popularVideos.retryCount >= MAX_RETRIES) {
@@ -77,7 +85,8 @@ export const fetchPopular = createAsyncThunk<Video[], void, { rejectValue: Confi
     }
 
     try {
-      return await fetchPopularVideos(9);
+      const pageToken = params?.pageToken;
+      return await fetchPopularVideos(9, pageToken);
     } catch (error) {
       if (error instanceof Error && error.name === 'YouTubeConfigError') {
         return rejectWithValue({ message: error.message, isConfigError: true });
@@ -87,9 +96,13 @@ export const fetchPopular = createAsyncThunk<Video[], void, { rejectValue: Confi
   }
 );
 
-export const fetchPlaylists = createAsyncThunk<Playlist[], void, { rejectValue: ConfigError | string }>(
+export const fetchPlaylists = createAsyncThunk<
+  { items: Playlist[]; nextPageToken?: string },
+  { pageToken?: string } | undefined,
+  { rejectValue: ConfigError | string }
+>(
   'videos/fetchPlaylists',
-  async (_, { getState, rejectWithValue }) => {
+  async (params, { getState, rejectWithValue }) => {
     const state = getState() as { videos: VideosState };
     
     if (state.videos.playlists.hasConfigError || state.videos.playlists.retryCount >= MAX_RETRIES) {
@@ -97,7 +110,8 @@ export const fetchPlaylists = createAsyncThunk<Playlist[], void, { rejectValue: 
     }
 
     try {
-      return await fetchChannelPlaylists(6);
+      const pageToken = params?.pageToken;
+      return await fetchChannelPlaylists(9, pageToken);
     } catch (error) {
       if (error instanceof Error && error.name === 'YouTubeConfigError') {
         return rejectWithValue({ message: error.message, isConfigError: true });
@@ -111,32 +125,41 @@ const videosSlice = createSlice({
   name: 'videos',
   initialState,
   reducers: {
-    resetRetryCount: (state, action: { payload: 'allVideos' | 'popularVideos' | 'playlists' }) => {
+    resetRetryCount: (state, action: { payload: 'latestVideos' | 'popularVideos' | 'playlists' }) => {
       state[action.payload].retryCount = 0;
       state[action.payload].hasConfigError = false;
+    },
+    resetList: (state, action: { payload: 'latestVideos' | 'popularVideos' | 'playlists' }) => {
+      state[action.payload].items = [];
+      state[action.payload].pageToken = undefined;
+      state[action.payload].hasMore = true;
+      state[action.payload].loading = false;
+      state[action.payload].error = null;
     }
   },
   extraReducers: (builder) => {
-    // All Videos
+    // Latest Videos
     builder
-      .addCase(fetchAllVideos.pending, (state) => {
-        state.allVideos.loading = true;
-        state.allVideos.error = null;
+      .addCase(fetchLatestVideos.pending, (state) => {
+        state.latestVideos.loading = true;
+        state.latestVideos.error = null;
       })
-      .addCase(fetchAllVideos.fulfilled, (state, action) => {
-        state.allVideos.loading = false;
-        state.allVideos.items = action.payload;
-        state.allVideos.retryCount = 0;
-        state.allVideos.hasConfigError = false;
+      .addCase(fetchLatestVideos.fulfilled, (state, action) => {
+        state.latestVideos.loading = false;
+        state.latestVideos.items = state.latestVideos.items.concat(action.payload.items);
+        state.latestVideos.pageToken = action.payload.nextPageToken;
+        state.latestVideos.hasMore = !!action.payload.nextPageToken;
+        state.latestVideos.retryCount = 0;
+        state.latestVideos.hasConfigError = false;
       })
-      .addCase(fetchAllVideos.rejected, (state, action) => {
-        state.allVideos.loading = false;
+      .addCase(fetchLatestVideos.rejected, (state, action) => {
+        state.latestVideos.loading = false;
         if (typeof action.payload === 'object' && action.payload && 'isConfigError' in action.payload) {
-          state.allVideos.error = (action.payload as ConfigError).message;
-          state.allVideos.hasConfigError = true;
+          state.latestVideos.error = (action.payload as ConfigError).message;
+          state.latestVideos.hasConfigError = true;
         } else {
-          state.allVideos.error = action.error.message || 'Failed to fetch videos';
-          state.allVideos.retryCount += 1;
+          state.latestVideos.error = action.error.message || 'Failed to fetch videos';
+          state.latestVideos.retryCount += 1;
         }
       })
       // Popular Videos
@@ -146,7 +169,9 @@ const videosSlice = createSlice({
       })
       .addCase(fetchPopular.fulfilled, (state, action) => {
         state.popularVideos.loading = false;
-        state.popularVideos.items = action.payload;
+        state.popularVideos.items = state.popularVideos.items.concat(action.payload.items);
+        state.popularVideos.pageToken = action.payload.nextPageToken;
+        state.popularVideos.hasMore = !!action.payload.nextPageToken;
         state.popularVideos.retryCount = 0;
         state.popularVideos.hasConfigError = false;
       })
@@ -167,7 +192,9 @@ const videosSlice = createSlice({
       })
       .addCase(fetchPlaylists.fulfilled, (state, action) => {
         state.playlists.loading = false;
-        state.playlists.items = action.payload;
+        state.playlists.items = state.playlists.items.concat(action.payload.items);
+        state.playlists.pageToken = action.payload.nextPageToken;
+        state.playlists.hasMore = !!action.payload.nextPageToken;
         state.playlists.retryCount = 0;
         state.playlists.hasConfigError = false;
       })
@@ -184,5 +211,5 @@ const videosSlice = createSlice({
   },
 });
 
-export const { resetRetryCount } = videosSlice.actions;
+export const { resetRetryCount, resetList } = videosSlice.actions;
 export default videosSlice.reducer; 

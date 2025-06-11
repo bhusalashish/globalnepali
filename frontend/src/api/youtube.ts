@@ -1,5 +1,26 @@
+import { withRetry } from '../utils/retry';
+
 const API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY;
 const CHANNEL_ID = import.meta.env.VITE_YOUTUBE_CHANNEL_ID;
+
+// Custom error for API configuration issues
+export class YouTubeConfigError extends Error {
+  isRetryable = false;
+  constructor(message: string) {
+    super(message);
+    this.name = 'YouTubeConfigError';
+  }
+}
+
+// Validate API configuration
+function validateConfig() {
+  if (!API_KEY) {
+    throw new YouTubeConfigError('YouTube API key is missing. Please check your environment variables.');
+  }
+  if (!CHANNEL_ID) {
+    throw new YouTubeConfigError('YouTube Channel ID is missing. Please check your environment variables.');
+  }
+}
 
 export interface Video {
   id: string;
@@ -18,79 +39,149 @@ export interface Playlist {
   videoCount: number;
 }
 
-export async function fetchYouTubeVideos(maxResults = 9): Promise<Video[]> {
-  const url = `https://www.googleapis.com/youtube/v3/search?key=${API_KEY}&channelId=${CHANNEL_ID}&part=snippet,id&order=date&maxResults=${maxResults}&type=video`;
+export interface YouTubeResponse<T> {
+  items: T[];
+  nextPageToken?: string;
+}
 
-  const response = await fetch(url);
+async function handleResponse(response: Response) {
   if (!response.ok) {
-    throw new Error("Failed to fetch YouTube videos");
+    const data = await response.json().catch(() => null);
+    
+    // Handle specific YouTube API errors
+    if (data?.error?.code === 403) {
+      throw new YouTubeConfigError('Invalid YouTube API key. Please check your configuration.');
+    }
+    if (data?.error?.code === 404) {
+      throw new YouTubeConfigError('YouTube channel not found. Please check your channel ID.');
+    }
+    
+    const error = new Error(data?.error?.message || 'Failed to fetch from YouTube API');
+    error.isRetryable = response.status >= 500 || response.status === 429;
+    throw error;
   }
-
-  const data = await response.json();
-  return data.items.map((item: any) => ({
-    id: item.id.videoId,
-    title: item.snippet.title,
-    thumbnail: item.snippet.thumbnails.high.url,
-    publishDate: new Date(item.snippet.publishedAt).toLocaleDateString(),
-  }));
+  return response.json();
 }
 
-export async function fetchPopularVideos(maxResults = 9): Promise<Video[]> {
-  // First get video IDs
-  const searchUrl = `https://www.googleapis.com/youtube/v3/search?key=${API_KEY}&channelId=${CHANNEL_ID}&part=id&maxResults=${maxResults}&type=video&order=viewCount`;
-  
-  const searchResponse = await fetch(searchUrl);
-  if (!searchResponse.ok) throw new Error("Failed to fetch popular videos");
-  
-  const searchData = await searchResponse.json();
-  const videoIds = searchData.items.map((item: any) => item.id.videoId).join(',');
-  
-  // Then get full video details including statistics
-  const videosUrl = `https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${videoIds}&part=snippet,statistics,contentDetails`;
-  
-  const videosResponse = await fetch(videosUrl);
-  if (!videosResponse.ok) throw new Error("Failed to fetch video details");
-  
-  const videosData = await videosResponse.json();
-  return videosData.items.map((item: any) => ({
-    id: item.id,
-    title: item.snippet.title,
-    thumbnail: item.snippet.thumbnails.high.url,
-    publishDate: new Date(item.snippet.publishedAt).toLocaleDateString(),
-    views: formatViewCount(item.statistics.viewCount),
-    duration: formatDuration(item.contentDetails.duration),
-  }));
-}
+export const fetchYouTubeVideos = async (maxResults: number = 9, pageToken?: string): Promise<YouTubeResponse<Video>> => {
+  try {
+    const tokenParam = pageToken ? `&pageToken=${pageToken}` : '';
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${CHANNEL_ID}&maxResults=${maxResults}&order=date&type=video${tokenParam}&key=${API_KEY}`
+    );
+    const data = await handleResponse(response);
 
-export async function fetchChannelPlaylists(maxResults = 6): Promise<Playlist[]> {
-  const url = `https://www.googleapis.com/youtube/v3/playlists?key=${API_KEY}&channelId=${CHANNEL_ID}&part=snippet,contentDetails&maxResults=${maxResults}`;
-  
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("Failed to fetch playlists");
-  
-  const data = await response.json();
-  return data.items.map((item: any) => ({
-    id: item.id,
-    title: item.snippet.title,
-    description: item.snippet.description,
-    thumbnail: item.snippet.thumbnails.high.url,
-    videoCount: item.contentDetails.itemCount,
-  }));
-}
+    const videoIds = data.items.map((item: any) => item.id.videoId).join(',');
+    const statsResponse = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${videoIds}&key=${API_KEY}`
+    );
+    const statsData = await handleResponse(statsResponse);
+
+    return {
+      items: data.items.map((item: any, index: number) => {
+        const stats = statsData.items[index];
+        return {
+          id: item.id.videoId,
+          title: item.snippet.title,
+          thumbnail: item.snippet.thumbnails.high.url,
+          publishDate: new Date(item.snippet.publishedAt).toLocaleDateString(),
+          views: formatViewCount(stats.statistics.viewCount),
+          duration: formatDuration(stats.contentDetails.duration),
+        };
+      }),
+      nextPageToken: data.nextPageToken
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('API key')) {
+      const configError = new Error('YouTube API key not configured');
+      configError.name = 'YouTubeConfigError';
+      throw configError;
+    }
+    throw error;
+  }
+};
+
+export const fetchPopularVideos = async (maxResults: number = 9, pageToken?: string): Promise<YouTubeResponse<Video>> => {
+  try {
+    const tokenParam = pageToken ? `&pageToken=${pageToken}` : '';
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${CHANNEL_ID}&maxResults=${maxResults}&order=viewCount&type=video${tokenParam}&key=${API_KEY}`
+    );
+    const data = await handleResponse(response);
+
+    const videoIds = data.items.map((item: any) => item.id.videoId).join(',');
+    const statsResponse = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${videoIds}&key=${API_KEY}`
+    );
+    const statsData = await handleResponse(statsResponse);
+
+    return {
+      items: data.items.map((item: any, index: number) => {
+        const stats = statsData.items[index];
+        return {
+          id: item.id.videoId,
+          title: item.snippet.title,
+          thumbnail: item.snippet.thumbnails.high.url,
+          publishDate: new Date(item.snippet.publishedAt).toLocaleDateString(),
+          views: formatViewCount(stats.statistics.viewCount),
+          duration: formatDuration(stats.contentDetails.duration),
+        };
+      }),
+      nextPageToken: data.nextPageToken
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('API key')) {
+      const configError = new Error('YouTube API key not configured');
+      configError.name = 'YouTubeConfigError';
+      throw configError;
+    }
+    throw error;
+  }
+};
+
+export const fetchChannelPlaylists = async (maxResults: number = 9, pageToken?: string): Promise<YouTubeResponse<Playlist>> => {
+  try {
+    const tokenParam = pageToken ? `&pageToken=${pageToken}` : '';
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&channelId=${CHANNEL_ID}&maxResults=${maxResults}${tokenParam}&key=${API_KEY}`
+    );
+    const data = await handleResponse(response);
+
+    return {
+      items: data.items.map((item: any) => ({
+        id: item.id,
+        title: item.snippet.title,
+        description: item.snippet.description,
+        thumbnail: item.snippet.thumbnails.high.url,
+        videoCount: item.contentDetails.itemCount,
+      })),
+      nextPageToken: data.nextPageToken
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('API key')) {
+      const configError = new Error('YouTube API key not configured');
+      configError.name = 'YouTubeConfigError';
+      throw configError;
+    }
+    throw error;
+  }
+};
 
 export async function fetchPlaylistVideos(playlistId: string, maxResults = 9): Promise<Video[]> {
-  const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=${maxResults}`;
+  validateConfig();
   
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("Failed to fetch playlist videos");
-  
-  const data = await response.json();
-  return data.items.map((item: any) => ({
-    id: item.snippet.resourceId.videoId,
-    title: item.snippet.title,
-    thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
-    publishDate: new Date(item.snippet.publishedAt).toLocaleDateString(),
-  }));
+  return withRetry(async () => {
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=${maxResults}`;
+    const response = await fetch(url);
+    const data = await handleResponse(response);
+    
+    return data.items.map((item: any) => ({
+      id: item.snippet.resourceId.videoId,
+      title: item.snippet.title,
+      thumbnail: item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default.url,
+      publishDate: new Date(item.snippet.publishedAt).toLocaleDateString(),
+    }));
+  });
 }
 
 // Utility functions

@@ -10,6 +10,7 @@ import Events from '../pages/events/Events';
 import NewEvent from '../pages/events/NewEvent';
 import Volunteers from '../pages/volunteers/Volunteers';
 import Sponsors from '../pages/sponsors/Sponsors';
+import VideosPage from '../pages/videos';
 import AdminDashboard from '../pages/admin/Dashboard';
 import AdminEvents from '../pages/admin/Events';
 import AdminUsers from '../pages/admin/Users';
@@ -61,6 +62,7 @@ const AppRoutes = () => {
             </ProtectedRoute>
           } />
         </Route>
+        <Route path="videos" element={<VideosPage />} />
         <Route path="volunteers" element={<Volunteers />} />
         <Route path="sponsors" element={<Sponsors />} />
       </Route>

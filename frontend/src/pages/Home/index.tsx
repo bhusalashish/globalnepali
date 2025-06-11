@@ -8,7 +8,6 @@ import {
   Button,
   Stack,
   useTheme,
-  useMediaQuery,
   Paper,
   Avatar,
 } from '@mui/material';
@@ -19,15 +18,14 @@ import {
   Business,
   ArrowForward,
   LocationOn,
-  CalendarToday,
   ChevronRight,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import FeaturedVideos from '../../components/videos/FeaturedVideos';
 
 const Home = () => {
   const navigate = useNavigate();
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const features = [
     {
@@ -417,7 +415,7 @@ const Home = () => {
           </Box>
 
           <Grid container spacing={4}>
-            {upcomingEvents.map((event, index) => (
+            {upcomingEvents.map((event) => (
               <Grid item key={event.title} xs={12} md={4}>
                 <Card
                   sx={{
@@ -546,12 +544,43 @@ const Home = () => {
         </Container>
       </Box>
 
+      {/* Featured Videos Section */}
+      <Box 
+        sx={{ 
+          bgcolor: 'white',
+          position: 'relative',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '50%',
+            bgcolor: '#f8f9fa',
+          },
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '50%',
+            bgcolor: 'white',
+          },
+        }}
+      >
+        <Box sx={{ position: 'relative', zIndex: 1 }}>
+          <FeaturedVideos />
+        </Box>
+      </Box>
+
       {/* Get Involved Section */}
       <Box
         sx={{
-          bgcolor: '#f8f9fa',
-          py: 10,
+          bgcolor: 'white',
+          py: { xs: 10, md: 15 },
           position: 'relative',
+          overflow: 'hidden',
           '&::before': {
             content: '""',
             position: 'absolute',
@@ -561,7 +590,8 @@ const Home = () => {
             bottom: 0,
             backgroundImage: 'url(/images/pattern.png)',
             backgroundSize: '400px',
-            opacity: 0.1,
+            opacity: 0.05,
+            transform: 'rotate(-3deg) scale(1.2)',
           },
         }}
       >
@@ -581,7 +611,7 @@ const Home = () => {
                 paragraph
                 sx={{ mb: 4 }}
               >
-                Join us in making a difference in the lives of Nepali students. Sign up to volunteer and support our programs.
+                Join us in making a difference in the lives of Nepalese in the US. Sign up to volunteer and support our programs.
               </Typography>
               <Button
                 variant="contained"

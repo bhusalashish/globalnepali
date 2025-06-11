@@ -33,6 +33,7 @@ import {
   Login,
   PersonAdd,
   Logout,
+  YouTube,
 } from '@mui/icons-material';
 import type { RootState } from '../../store/store';
 import { logout } from '../../store/slices/authSlice';
@@ -71,6 +72,7 @@ const Layout = () => {
   const navigationItems = [
     { text: 'Articles', icon: <Article />, path: '/articles' },
     { text: 'Events', icon: <Event />, path: '/events' },
+    { text: 'Videos', icon: <YouTube />, path: '/videos' },
     { text: 'Volunteer', icon: <People />, path: '/volunteers' },
     { text: 'Sponsors', icon: <Business />, path: '/sponsors' },
     ...(user?.role === 'admin' ? [{ text: 'Admin', icon: <Dashboard />, path: '/admin' }] : []),

@@ -13,11 +13,12 @@ import {
   IconButton,
   Skeleton,
   Alert,
+  Button,
 } from '@mui/material';
-import { PlayCircle, YouTube, PlaylistPlay } from '@mui/icons-material';
+import { PlayCircle, YouTube, PlaylistPlay, Refresh } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import type { AppDispatch, RootState } from '../../store/store';
-import { fetchAllVideos, fetchPopular, fetchPlaylists } from '../../store/slices/videosSlice';
+import { fetchAllVideos, fetchPopular, fetchPlaylists, resetRetryCount } from '../../store/slices/videosSlice';
 import type { Video, Playlist } from '../../api/youtube';
 
 const VideosPage = () => {
@@ -35,22 +36,25 @@ const VideosPage = () => {
     // Load data based on current tab
     switch (currentTab) {
       case 0:
-        if (allVideos.items.length === 0 && !allVideos.loading) {
+        if (allVideos.items.length === 0 && !allVideos.loading && !allVideos.hasConfigError && allVideos.retryCount < 3) {
           dispatch(fetchAllVideos());
         }
         break;
       case 1:
-        if (playlists.items.length === 0 && !playlists.loading) {
+        if (playlists.items.length === 0 && !playlists.loading && !playlists.hasConfigError && playlists.retryCount < 3) {
           dispatch(fetchPlaylists());
         }
         break;
       case 2:
-        if (popularVideos.items.length === 0 && !popularVideos.loading) {
+        if (popularVideos.items.length === 0 && !popularVideos.loading && !popularVideos.hasConfigError && popularVideos.retryCount < 3) {
           dispatch(fetchPopular());
         }
         break;
     }
-  }, [currentTab, dispatch, allVideos.items.length, playlists.items.length, popularVideos.items.length, allVideos.loading, playlists.loading, popularVideos.loading]);
+  }, [currentTab, dispatch, allVideos.items.length, playlists.items.length, popularVideos.items.length, 
+      allVideos.loading, playlists.loading, popularVideos.loading,
+      allVideos.hasConfigError, playlists.hasConfigError, popularVideos.hasConfigError,
+      allVideos.retryCount, playlists.retryCount, popularVideos.retryCount]);
 
   const handlePlayVideo = (videoId: string) => {
     window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank');
@@ -60,13 +64,52 @@ const VideosPage = () => {
     setCurrentTab(newValue);
   };
 
-  const renderVideoGrid = (videos: Video[], loading: boolean, error: string | null) => {
+  const handleRetry = (section: 'allVideos' | 'popularVideos' | 'playlists') => {
+    dispatch(resetRetryCount(section));
+    switch (section) {
+      case 'allVideos':
+        dispatch(fetchAllVideos());
+        break;
+      case 'popularVideos':
+        dispatch(fetchPopular());
+        break;
+      case 'playlists':
+        dispatch(fetchPlaylists());
+        break;
+    }
+  };
+
+  const renderError = (error: string | null, section: 'allVideos' | 'popularVideos' | 'playlists') => {
+    if (!error) return null;
+    
+    return (
+      <Alert 
+        severity="error" 
+        sx={{ width: '100%', mt: 2 }}
+        action={
+          <Button
+            color="inherit"
+            size="small"
+            startIcon={<Refresh />}
+            onClick={() => handleRetry(section)}
+          >
+            Retry
+          </Button>
+        }
+      >
+        {error}
+      </Alert>
+    );
+  };
+
+  const renderVideoGrid = (
+    videos: Video[], 
+    loading: boolean, 
+    error: string | null,
+    section: 'allVideos' | 'popularVideos'
+  ) => {
     if (error) {
-      return (
-        <Alert severity="error" sx={{ width: '100%', mt: 2 }}>
-          {error}
-        </Alert>
-      );
+      return renderError(error, section);
     }
 
     if (loading) {
@@ -200,10 +243,10 @@ const VideosPage = () => {
   const renderContent = () => {
     switch (currentTab) {
       case 0:
-        return renderVideoGrid(allVideos.items, allVideos.loading, allVideos.error);
+        return renderVideoGrid(allVideos.items, allVideos.loading, allVideos.error, 'allVideos');
       case 1:
         if (playlists.error) {
-          return <Alert severity="error">{playlists.error}</Alert>;
+          return renderError(playlists.error, 'playlists');
         }
         if (playlists.loading) {
           return (
@@ -264,7 +307,7 @@ const VideosPage = () => {
           </Grid>
         );
       case 2:
-        return renderVideoGrid(popularVideos.items, popularVideos.loading, popularVideos.error);
+        return renderVideoGrid(popularVideos.items, popularVideos.loading, popularVideos.error, 'popularVideos');
       default:
         return null;
     }

@@ -13,6 +13,20 @@ import { PlayCircle, ArrowForward } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '@mui/material/styles';
 
+// import { fetchYouTubeVideos } from "../../api/youtube";
+// import { useEffect } from "react";
+// export default function FeaturedVideos() {
+//     useEffect(() => {
+//         fetchYouTubeVideos()
+//         .then((videos) => console.log("Popular videos:", videos))
+//         .catch((err) => console.error("Failed:", err));
+//     }, []);
+  
+//     return <div>Testing YouTube API...</div>;
+//   }
+
+
+
 // Mock data - will be replaced with actual YouTube API data later
 const mockVideos = [
   {
